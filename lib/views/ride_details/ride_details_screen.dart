@@ -51,7 +51,11 @@ class RideDetailsScreen extends StatelessWidget {
           ],
         ),
       ),
-      bottomNavigationBar: _BookingFooter(viewModel: viewModel, ride: ride),
+      bottomNavigationBar: _BookingFooter(
+        viewModel: viewModel,
+        ride: ride,
+        onBooked: onBack,
+      ),
     );
   }
 }
@@ -345,8 +349,28 @@ class _SeatSelection extends StatelessWidget {
                   style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
                 ),
               ),
-              _DangerBadge('${viewModel.remainingSeatCount} Seats Left'),
+              _DangerBadge(
+                viewModel.isRideFull
+                    ? 'Full'
+                    : '${viewModel.remainingSeatCount} Seats Left',
+              ),
             ],
+          ),
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            onPressed: viewModel.isRideFull
+                ? null
+                : viewModel.bookFullCarForFamily,
+            icon: const Icon(Icons.family_restroom),
+            label: const Text('Book Full Car for Family'),
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size.fromHeight(48),
+              foregroundColor: DetailsColors.secondary,
+              side: const BorderSide(color: DetailsColors.outlineVariant),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
           ),
           const SizedBox(height: 24),
           Row(
@@ -371,7 +395,8 @@ class _SeatSelection extends StatelessWidget {
                       _SeatBox(
                         key: ValueKey('seat_$seatId'),
                         state: _seatStateFor(viewModel, seatId),
-                        tooltip: viewModel.seatLabel(seatId),
+                        tooltip:
+                            '${viewModel.seatLabel(seatId)} - ${viewModel.seatLocation(seatId)}',
                         onTap: () => viewModel.toggleSeat(seatId),
                       ),
                   ],
@@ -494,8 +519,6 @@ class _FareBreakdown extends StatelessWidget {
                 'Base Fare (x${viewModel.selectedSeatCount == 0 ? 1 : viewModel.selectedSeatCount} seat)',
             value: 'Rs. ${viewModel.baseFare}',
           ),
-          const SizedBox(height: 12),
-          _FareRow(label: 'Service Fee', value: 'Rs. ${viewModel.serviceFee}'),
           const SizedBox(height: 14),
           const Divider(color: DetailsColors.outlineVariant),
           const SizedBox(height: 10),
@@ -541,10 +564,15 @@ class _FareBreakdown extends StatelessWidget {
 }
 
 class _BookingFooter extends StatelessWidget {
-  const _BookingFooter({required this.viewModel, required this.ride});
+  const _BookingFooter({
+    required this.viewModel,
+    required this.ride,
+    required this.onBooked,
+  });
 
   final RideDetailsViewModel viewModel;
   final RideOption ride;
+  final VoidCallback onBooked;
 
   @override
   Widget build(BuildContext context) {
@@ -561,7 +589,12 @@ class _BookingFooter extends StatelessWidget {
           padding: const EdgeInsets.all(16),
           child: FilledButton(
             onPressed: viewModel.canConfirm
-                ? () => viewModel.confirmBooking(ride)
+                ? () async {
+                    await viewModel.confirmBooking(ride);
+                    if (context.mounted && viewModel.isConfirmed) {
+                      onBooked();
+                    }
+                  }
                 : null,
             style: FilledButton.styleFrom(
               minimumSize: const Size.fromHeight(56),

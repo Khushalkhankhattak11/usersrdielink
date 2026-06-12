@@ -1,7 +1,9 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 import '../models/home_content.dart';
 import '../services/firebase_backend.dart';
+import '../services/location_service.dart';
 
 enum HomeTab { home, myRides, wallet, profile }
 
@@ -11,6 +13,7 @@ enum RideTier { economy, standard, premium }
 
 class UpcomingRide {
   const UpcomingRide({
+    required this.id,
     required this.status,
     required this.departureTime,
     required this.seat,
@@ -20,8 +23,10 @@ class UpcomingRide {
     required this.vehicle,
     required this.plateNumber,
     required this.tier,
+    required this.raw,
   });
 
+  final String id;
   final String status;
   final String departureTime;
   final String seat;
@@ -31,40 +36,45 @@ class UpcomingRide {
   final String vehicle;
   final String plateNumber;
   final RideTier tier;
+  final Map<String, dynamic> raw;
 }
 
 class RideHistoryItem {
   const RideHistoryItem({
+    required this.id,
     required this.tier,
     required this.date,
     required this.from,
     required this.to,
     required this.fare,
     required this.status,
+    required this.raw,
   });
 
+  final String id;
   final RideTier tier;
   final String date;
   final String from;
   final String to;
   final String fare;
   final String status;
+  final Map<String, dynamic> raw;
 }
 
 class UserProfile {
   const UserProfile({
     required this.name,
+    required this.email,
     required this.joined,
     required this.phone,
     required this.ridesTaken,
-    required this.averageRating,
   });
 
   final String name;
+  final String email;
   final String joined;
   final String phone;
   final String ridesTaken;
-  final String averageRating;
 }
 
 class PastRide {
@@ -93,12 +103,14 @@ class WalletTransaction {
     required this.time,
     required this.points,
     required this.type,
+    required this.status,
   });
 
   final String title;
   final String time;
   final int points;
   final WalletTransactionType type;
+  final String status;
 }
 
 class WalletReward {
@@ -138,13 +150,23 @@ class ProfileActionItem {
 }
 
 class HomeViewModel extends ChangeNotifier {
-  HomeViewModel({RideRepository? rideRepository})
-    : _rideRepository = rideRepository ?? RideRepository() {
-    loadRides();
+  HomeViewModel({
+    RideRepository? rideRepository,
+    WalletRepository? walletRepository,
+    AuthRepository? authRepository,
+    LocationService? locationService,
+  }) : _rideRepository = rideRepository ?? RideRepository(),
+       _walletRepository = walletRepository ?? WalletRepository(),
+       _authRepository = authRepository ?? AuthRepository(),
+       _locationService = locationService ?? const LocationService() {
+    loadInitialData();
   }
 
-  static const detectedLocation = 'Islamabad G-11 Markaz';
+  static const detectedLocation = 'Current Location';
   final RideRepository _rideRepository;
+  final WalletRepository _walletRepository;
+  final AuthRepository _authRepository;
+  final LocationService _locationService;
 
   final List<QuickRoute> quickRoutes = const [
     QuickRoute(label: 'Karak'),
@@ -152,161 +174,25 @@ class HomeViewModel extends ChangeNotifier {
     QuickRoute(label: 'Lahore'),
   ];
 
-  final List<RideOption> _allRides = const [
-    RideOption(
-      driverName: 'Ahmed Khan',
-      ratingLabel: '4.8 (120 rides)',
-      vehicle: 'Suzuki WagonR',
-      vehicleDetails: 'Suzuki WagonR • White • LEA-4521',
-      tier: 'Economy',
-      fare: 'Rs. 900',
-      from: 'Islamabad G-11 Markaz',
-      to: 'Karak Main Bazar',
-      pickupTime: '09:00 AM',
-      dropoffTime: '01:30 PM',
-      seatsLeft: '2 Seats Left',
-      accentColor: Color(0xFF22C55E),
-      badgeColor: Color(0xFFDCFCE7),
-      badgeTextColor: Color(0xFF166534),
-      isLowSeat: true,
-    ),
-    RideOption(
-      driverName: 'Zubair Malik',
-      ratingLabel: '4.9 (450 rides)',
-      vehicle: 'Honda Civic',
-      vehicleDetails: 'Honda Civic • Silver • ICT-8892',
-      tier: 'Premium',
-      fare: 'Rs. 1,800',
-      from: 'Daewoo Terminal, Islamabad',
-      to: 'Karak Toll Plaza',
-      pickupTime: '10:30 AM',
-      dropoffTime: '02:45 PM',
-      seatsLeft: '4 Seats Left',
-      accentColor: Color(0xFF8B5CF6),
-      badgeColor: Color(0xFFF5F3FF),
-      badgeTextColor: Color(0xFF5B21B6),
-    ),
-    RideOption(
-      driverName: 'Captain Haider',
-      ratingLabel: '5.0 (Elite Partner)',
-      vehicle: 'Toyota Fortuner',
-      vehicleDetails: 'Toyota Fortuner • Black • RIP-7788',
-      tier: 'Luxury',
-      fare: 'Rs. 3,500',
-      from: 'Islamabad International Airport',
-      to: 'Karak Civil Hospital Road',
-      pickupTime: '02:00 PM',
-      dropoffTime: '06:15 PM',
-      seatsLeft: '3 Seats Left',
-      accentColor: Color(0xFFEF4444),
-      badgeColor: Color(0xFFFEE2E2),
-      badgeTextColor: Color(0xFF991B1B),
-    ),
-  ];
-
-  static const List<UpcomingRide> _fallbackUpcomingRides = [
-    UpcomingRide(
-      status: 'Confirmed',
-      departureTime: 'Today, 04:30 PM',
-      seat: '4A',
-      origin: 'Islamabad G-11 Markaz',
-      destination: 'Karak Terminal',
-      driverName: 'Ahmed Ali',
-      vehicle: 'Toyota Corolla 2020 • White',
-      plateNumber: 'LEP-420',
-      tier: RideTier.standard,
-    ),
-  ];
-
-  static const List<RideHistoryItem> _fallbackRideHistory = [
-    RideHistoryItem(
-      tier: RideTier.premium,
-      date: 'Oct 12, 2023',
-      from: 'Lahore',
-      to: 'Islamabad',
-      fare: 'Rs. 3,500',
-      status: 'Completed',
-    ),
-    RideHistoryItem(
-      tier: RideTier.economy,
-      date: 'Sep 28, 2023',
-      from: 'Peshawar',
-      to: 'Abbottabad',
-      fare: 'Rs. 1,200',
-      status: 'Completed',
-    ),
-    RideHistoryItem(
-      tier: RideTier.standard,
-      date: 'Sep 15, 2023',
-      from: 'Multan',
-      to: 'Lahore',
-      fare: 'Rs. 2,100',
-      status: 'Completed',
-    ),
-  ];
-
-  final UserProfile profile = const UserProfile(
-    name: 'Ahmed Hassan',
-    joined: 'Joined March 2023',
-    phone: '+92 300 1234567',
-    ridesTaken: '12',
-    averageRating: '4.9',
+  UserProfile _profile = const UserProfile(
+    name: 'Ride Link User',
+    email: '',
+    joined: 'Joined recently',
+    phone: '',
+    ridesTaken: '0',
   );
-
-  final List<PastRide> pastRides = const [
-    PastRide(
-      origin: 'Lahore (DHA Ph 5)',
-      destination: 'Islamabad (Blue Area)',
-      fare: 'PKR 3,200',
-      date: 'Oct 12, 2023',
-      vehicle: 'Honda Civic • White',
-      accentColor: Color(0xFF3B82F6),
-    ),
-    PastRide(
-      origin: 'Rawalpindi (Saddar)',
-      destination: 'Peshawar (University Rd)',
-      fare: 'PKR 1,800',
-      date: 'Sep 28, 2023',
-      vehicle: 'Toyota Corolla • Silver',
-      accentColor: Color(0xFFCBD5E1),
-    ),
-  ];
-
-  final int walletBalance = 2500;
-  final String pendingWalletApprovals = '1 Top-up screenshot uploaded';
-
-  final List<WalletTransaction> walletTransactions = const [
-    WalletTransaction(
-      title: 'Lahore to Islamabad',
-      time: 'Yesterday, 4:30 PM',
-      points: -1200,
-      type: WalletTransactionType.deduction,
-    ),
-    WalletTransaction(
-      title: 'Wallet Top-Up',
-      time: 'Oct 24, 10:15 AM',
-      points: 3000,
-      type: WalletTransactionType.deposit,
-    ),
-    WalletTransaction(
-      title: 'Multan to Lahore',
-      time: 'Oct 22, 09:00 AM',
-      points: -800,
-      type: WalletTransactionType.deduction,
-    ),
-  ];
 
   final List<WalletReward> walletRewards = const [
     WalletReward(
       icon: Icons.redeem,
       title: 'Free Ride',
-      subtitle: 'Earn 5,000 more pts',
+      subtitle: 'Earn points with every ride',
       isHighlighted: false,
     ),
     WalletReward(
       icon: Icons.bolt,
       title: 'Instant Top-up',
-      subtitle: 'Via EasyPaisa',
+      subtitle: 'Via payment screenshot',
       isHighlighted: true,
     ),
   ];
@@ -351,17 +237,46 @@ class HomeViewModel extends ChangeNotifier {
   bool _hasWalletProof = false;
   bool _isSubmittingWalletProof = false;
   bool _isWalletProofSubmitted = false;
-  List<RideOption> _rides = [];
-  List<UpcomingRide> _upcomingRides = _fallbackUpcomingRides;
-  List<RideHistoryItem> _rideHistory = _fallbackRideHistory;
   bool _isLoadingRides = false;
+  bool _isLoadingBookings = false;
+  bool _isLoadingWallet = false;
+  bool _hasLoadedRides = false;
+  bool _hasLoadedBookings = false;
+  bool _hasLoadedWallet = false;
   String? _ridesErrorMessage;
+  List<RideOption> _rides = [];
+  List<UpcomingRide> _upcomingRides = [];
+  List<RideHistoryItem> _rideHistory = [];
+  List<PastRide> _pastRides = [];
+  Map<String, dynamic>? _completedRideNeedingRating;
+  String? _dismissedRatingRideId;
+  int _walletBalance = 0;
+  int _pendingWalletCount = 0;
+  List<WalletTransaction> _walletTransactions = [];
 
   String get from => _from;
   String get to => _to;
   bool get hasSearched => _hasSearched;
   bool get isLoadingRides => _isLoadingRides;
+  bool get isLoadingBookings => _isLoadingBookings;
+  bool get isLoadingWallet => _isLoadingWallet;
+  bool get shouldShowRidesSkeleton => _isLoadingRides && !_hasLoadedRides;
+  bool get shouldShowBookingsSkeleton =>
+      _isLoadingBookings && !_hasLoadedBookings;
+  bool get shouldShowWalletSkeleton => _isLoadingWallet && !_hasLoadedWallet;
   String? get ridesErrorMessage => _ridesErrorMessage;
+  UserProfile get profile => _profile;
+  List<PastRide> get pastRides => _pastRides;
+  int get walletBalance => _walletBalance;
+  String get pendingWalletApprovals {
+    if (_pendingWalletCount == 0) return 'No pending top-up requests';
+    return '$_pendingWalletCount top-up ${_pendingWalletCount == 1 ? 'request' : 'requests'} pending approval';
+  }
+
+  List<WalletTransaction> get walletTransactions => _walletTransactions;
+  Map<String, dynamic>? get completedRideNeedingRating =>
+      _completedRideNeedingRating;
+
   List<RideOption> get rides {
     final source = _hasSearched ? _filteredRides() : _rides;
     return [...source]
@@ -374,18 +289,15 @@ class HomeViewModel extends ChangeNotifier {
   }
 
   String get searchTitle {
-    if (!_hasSearched || _searchedTo.isEmpty) {
-      return 'Available Rides';
-    }
-
+    if (!_hasSearched || _searchedTo.isEmpty) return 'Available Rides';
     return '${_cityName(_searchedFrom)} to ${_cityName(_searchedTo)}';
   }
 
-  String get searchSubtitle => 'Today, 24 Oct';
+  String get searchSubtitle => 'Today';
   String get departingSoonLabel =>
       rides.isEmpty ? '--' : rides.first.pickupTime;
   String get safetyLabel =>
-      rides.isEmpty ? 'No Pilots' : '${rides.length} Verified Pilots';
+      rides.isEmpty ? 'No Drivers' : '${rides.length} Verified Drivers';
   List<UpcomingRide> get upcomingRides => _upcomingRides;
   List<RideHistoryItem> get rideHistory => _rideHistory;
   HomeTab get selectedTab => _selectedTab;
@@ -394,13 +306,13 @@ class HomeViewModel extends ChangeNotifier {
   bool get hasWalletProof => _hasWalletProof;
   bool get isSubmittingWalletProof => _isSubmittingWalletProof;
   bool get isWalletProofSubmitted => _isWalletProofSubmitted;
+
   String get appBarTitle {
     if (_selectedTab == HomeTab.wallet &&
         _isWalletTopUpOpen &&
         !_isWalletProofSubmitted) {
       return 'Top Up';
     }
-
     return switch (_selectedTab) {
       HomeTab.home => 'Ride Link',
       HomeTab.myRides => 'My Rides',
@@ -409,46 +321,139 @@ class HomeViewModel extends ChangeNotifier {
     };
   }
 
+  Future<void> loadInitialData() async {
+    await Future.wait([
+      loadCurrentLocation(),
+      loadRides(),
+      loadBookings(),
+      loadWallet(),
+      loadProfile(),
+    ]);
+  }
+
+  Future<void> loadCurrentLocation() async {
+    final label = await _locationService.currentLocationLabel();
+    if (label == null || label.isEmpty) return;
+    _from = label;
+    _searchedFrom = label;
+    notifyListeners();
+  }
+
+  void resetToHomeTab() {
+    _selectedTab = HomeTab.home;
+    _isWalletTopUpOpen = false;
+    _hasWalletProof = false;
+    _isWalletProofSubmitted = false;
+    notifyListeners();
+  }
+
   void updateFrom(String value) {
     _from = value.trim();
+  }
+
+  void updateTo(String value) {
+    _to = value.trim();
   }
 
   Future<void> loadRides() async {
     _isLoadingRides = true;
     _ridesErrorMessage = null;
     notifyListeners();
-
     try {
-      _rides = await _rideRepository.fetchRides(_allRides);
-      await loadBookings();
+      _rides = await _rideRepository.fetchRides();
     } on Object {
-      _rides = _allRides;
-      _ridesErrorMessage = 'Using demo rides while Firebase is unavailable.';
+      _rides = const [];
+      _ridesErrorMessage = 'Unable to load rides from Firebase.';
     }
-
+    _hasLoadedRides = true;
     _isLoadingRides = false;
     notifyListeners();
   }
 
   Future<void> loadBookings() async {
+    _isLoadingBookings = true;
+    notifyListeners();
     try {
-      final bookingDocs = await _rideRepository.fetchCurrentUserBookings();
-      if (bookingDocs.isEmpty) {
-        _upcomingRides = _fallbackUpcomingRides;
-        _rideHistory = _fallbackRideHistory;
-        return;
+      final bookingDocs = await _rideRepository.fetchCurrentUserManagedRides();
+      final upcoming = <UpcomingRide>[];
+      final past = <RideHistoryItem>[];
+      final profilePast = <PastRide>[];
+      for (final booking in bookingDocs) {
+        if (_isPastBooking(booking)) {
+          final item = _historyFromBooking(booking);
+          past.add(item);
+          profilePast.add(_pastRideFromHistory(item));
+          if (_completedRideNeedingRating == null &&
+              _needsDriverRating(booking)) {
+            _completedRideNeedingRating = booking;
+          }
+        } else {
+          upcoming.add(_upcomingRideFromBooking(booking));
+        }
       }
-
-      _upcomingRides = bookingDocs.map(_upcomingRideFromBooking).toList();
-      _rideHistory = _fallbackRideHistory;
+      _upcomingRides = upcoming;
+      _rideHistory = past;
+      _pastRides = profilePast;
+      _profile = UserProfile(
+        name: _profile.name,
+        email: _profile.email,
+        joined: _profile.joined,
+        phone: _profile.phone,
+        ridesTaken: bookingDocs.length.toString(),
+      );
     } on Object {
-      _upcomingRides = _fallbackUpcomingRides;
-      _rideHistory = _fallbackRideHistory;
+      _upcomingRides = [];
+      _rideHistory = [];
+      _pastRides = [];
     }
+    _hasLoadedBookings = true;
+    _isLoadingBookings = false;
+    notifyListeners();
   }
 
-  void updateTo(String value) {
-    _to = value.trim();
+  Future<void> loadWallet() async {
+    _isLoadingWallet = true;
+    notifyListeners();
+    try {
+      final snapshot = await _walletRepository.fetchWallet();
+      _walletBalance = snapshot.balance;
+      _pendingWalletCount = snapshot.pendingCount;
+      _walletTransactions = snapshot.transactions
+          .map(
+            (item) => WalletTransaction(
+              title: item.title,
+              time: '${item.timeLabel} - ${item.statusLabel}',
+              points: item.points,
+              type: WalletTransactionType.deposit,
+              status: item.statusLabel,
+            ),
+          )
+          .toList();
+    } on Object {
+      _walletBalance = 0;
+      _pendingWalletCount = 0;
+      _walletTransactions = [];
+    }
+    _hasLoadedWallet = true;
+    _isLoadingWallet = false;
+    notifyListeners();
+  }
+
+  Future<void> loadProfile() async {
+    try {
+      final data = await _authRepository.fetchCurrentUserProfile();
+      if (data == null) return;
+      _profile = UserProfile(
+        name: (data['fullName'] ?? data['name'] ?? 'Ride Link User').toString(),
+        email: (data['email'] ?? '').toString(),
+        joined: _joinedLabel(data['createdAt']),
+        phone: (data['phone'] ?? '').toString(),
+        ridesTaken: _profile.ridesTaken,
+      );
+      notifyListeners();
+    } on Object {
+      // Keep existing profile data if Firebase is unavailable.
+    }
   }
 
   void selectQuickRoute(QuickRoute route) {
@@ -471,26 +476,18 @@ class HomeViewModel extends ChangeNotifier {
   }
 
   void closeSearchResults() {
-    if (!_hasSearched) {
-      return;
-    }
-
+    if (!_hasSearched) return;
     _hasSearched = false;
     notifyListeners();
   }
 
   void selectTab(HomeTab tab) {
-    if (_selectedTab == tab) {
-      return;
-    }
-
+    if (_selectedTab == tab) return;
     _selectedTab = tab;
-    if (tab != HomeTab.wallet) {
-      _isWalletTopUpOpen = false;
-    }
-    if (tab == HomeTab.myRides) {
-      loadBookings().then((_) => notifyListeners());
-    }
+    if (tab != HomeTab.wallet) _isWalletTopUpOpen = false;
+    if (tab == HomeTab.myRides || tab == HomeTab.profile) loadBookings();
+    if (tab == HomeTab.wallet) loadWallet();
+    if (tab == HomeTab.profile) loadProfile();
     notifyListeners();
   }
 
@@ -500,10 +497,7 @@ class HomeViewModel extends ChangeNotifier {
   }
 
   void closeWalletTopUp() {
-    if (!_isWalletTopUpOpen) {
-      return;
-    }
-
+    if (!_isWalletTopUpOpen) return;
     _isWalletTopUpOpen = false;
     notifyListeners();
   }
@@ -513,6 +507,7 @@ class HomeViewModel extends ChangeNotifier {
     _hasWalletProof = false;
     _isSubmittingWalletProof = false;
     _isWalletProofSubmitted = false;
+    loadWallet();
     notifyListeners();
   }
 
@@ -529,35 +524,85 @@ class HomeViewModel extends ChangeNotifier {
   }
 
   Future<void> submitWalletProof() async {
-    if (!_hasWalletProof || _isSubmittingWalletProof) {
-      return;
+    if (!_hasWalletProof || _isSubmittingWalletProof) return;
+    _isSubmittingWalletProof = true;
+    notifyListeners();
+    try {
+      await _walletRepository.createTopUpPayment(
+        proofName: 'payment_screenshot.jpg',
+      );
+      _isWalletProofSubmitted = true;
+      _hasWalletProof = false;
+      await loadWallet();
+    } finally {
+      _isSubmittingWalletProof = false;
+      notifyListeners();
     }
+  }
 
-    _isSubmittingWalletProof = false;
-    _isWalletProofSubmitted = true;
+  Future<void> cancelManagedRide({
+    required String managedRideId,
+    required bool driverAgreed,
+  }) async {
+    await _rideRepository.cancelManagedRide(
+      managedRideId: managedRideId,
+      driverAgreed: driverAgreed,
+    );
+    await Future.wait([loadBookings(), loadRides(), loadWallet()]);
+  }
+
+  Future<void> changeManagedRideSeat({
+    required String managedRideId,
+    required List<String> newSeats,
+    required List<Map<String, String>> seatDetails,
+  }) async {
+    await _rideRepository.changeManagedRideSeat(
+      managedRideId: managedRideId,
+      newSeats: newSeats,
+      seatDetails: seatDetails,
+    );
+    await Future.wait([loadBookings(), loadRides()]);
+  }
+
+  Future<void> submitDriverRating({
+    required String managedRideId,
+    required int rating,
+    String? comment,
+  }) async {
+    await _rideRepository.submitDriverRating(
+      managedRideId: managedRideId,
+      rating: rating,
+      comment: comment,
+    );
+    _dismissedRatingRideId = managedRideId;
+    _completedRideNeedingRating = null;
+    notifyListeners();
+    await loadBookings();
+  }
+
+  void dismissRatingPrompt() {
+    _dismissedRatingRideId = _completedRideNeedingRating?['id']?.toString();
+    _completedRideNeedingRating = null;
     notifyListeners();
   }
 
-  void selectMyRidesTab(MyRidesTab tab) {
-    if (_selectedMyRidesTab == tab) {
-      return;
-    }
+  Future<void> deleteCurrentAccount() => _authRepository.deleteCurrentAccount();
 
+  void selectMyRidesTab(MyRidesTab tab) {
+    if (_selectedMyRidesTab == tab) return;
     _selectedMyRidesTab = tab;
     notifyListeners();
   }
 
   List<RideOption> _filteredRides() {
-    final fromQuery = _normalize(_searchedFrom);
+    final fromQuery = _searchedFrom == detectedLocation
+        ? ''
+        : _normalize(_searchedFrom);
     final toQuery = _normalize(_searchedTo);
-
     return _rides.where((ride) {
       final fromMatches =
           fromQuery.isEmpty ||
           _normalize(ride.from).contains(fromQuery) ||
-          _normalize(
-            ride.from,
-          ).contains(_normalize(_cityName(_searchedFrom))) ||
           fromQuery.contains(_normalize(_cityName(ride.from)));
       final toMatches =
           toQuery.isEmpty ||
@@ -575,6 +620,7 @@ class HomeViewModel extends ChangeNotifier {
         .replaceAll('(', ' ')
         .replaceAll(')', ' ')
         .trim();
+    if (cleaned.isEmpty) return '';
     return cleaned.split(RegExp(r'\s+')).first;
   }
 
@@ -583,20 +629,98 @@ class HomeViewModel extends ChangeNotifier {
     return int.tryParse(digits) ?? 0;
   }
 
+  bool _isPastBooking(Map<String, dynamic> booking) {
+    final status = (booking['bookingStatus'] ?? booking['status'] ?? '')
+        .toString()
+        .toLowerCase();
+    return status == 'completed' ||
+        status == 'cancelled' ||
+        status == 'canceled';
+  }
+
+  bool _needsDriverRating(Map<String, dynamic> booking) {
+    final id = booking['id']?.toString();
+    final status = (booking['bookingStatus'] ?? booking['status'] ?? '')
+        .toString()
+        .toLowerCase();
+    return status == 'completed' &&
+        id != null &&
+        id != _dismissedRatingRideId &&
+        booking['userRating'] == null;
+  }
+
   UpcomingRide _upcomingRideFromBooking(Map<String, dynamic> booking) {
-    final seats = List<String>.from(
-      (booking['seats'] as List<dynamic>?) ?? const [],
-    );
+    final seats = _stringList(booking['seatLabels']).isNotEmpty
+        ? _stringList(booking['seatLabels'])
+        : _stringList(booking['seats']);
     return UpcomingRide(
-      status: (booking['status'] as String? ?? 'confirmed').toUpperCase(),
-      departureTime: booking['pickupTime'] as String? ?? 'Today',
+      id: booking['id']?.toString() ?? '',
+      status: (booking['bookingStatus'] ?? booking['status'] ?? 'confirmed')
+          .toString()
+          .toUpperCase(),
+      departureTime: booking['pickupTime']?.toString() ?? 'Today',
       seat: seats.isEmpty ? '--' : seats.join(', '),
-      origin: booking['from'] as String? ?? detectedLocation,
-      destination: booking['to'] as String? ?? 'Destination',
-      driverName: booking['driverName'] as String? ?? 'Verified Driver',
-      vehicle: booking['vehicle'] as String? ?? 'Verified Vehicle',
+      origin: booking['from']?.toString() ?? detectedLocation,
+      destination: booking['to']?.toString() ?? 'Destination',
+      driverName: booking['driverName']?.toString() ?? 'Verified Driver',
+      vehicle:
+          booking['vehicleDetails']?.toString() ??
+          booking['vehicle']?.toString() ??
+          'Verified Vehicle',
       plateNumber: 'BOOKED',
       tier: RideTier.standard,
+      raw: booking,
     );
+  }
+
+  RideHistoryItem _historyFromBooking(Map<String, dynamic> booking) {
+    return RideHistoryItem(
+      id: booking['id']?.toString() ?? '',
+      tier: RideTier.standard,
+      date: _dateLabel(booking['createdAt']),
+      from: booking['from']?.toString() ?? detectedLocation,
+      to: booking['to']?.toString() ?? 'Destination',
+      fare: _fareLabel(booking['totalFare']),
+      status: (booking['bookingStatus'] ?? booking['status'] ?? 'Completed')
+          .toString(),
+      raw: booking,
+    );
+  }
+
+  PastRide _pastRideFromHistory(RideHistoryItem item) {
+    return PastRide(
+      origin: item.from,
+      destination: item.to,
+      fare: item.fare,
+      date: item.date,
+      vehicle:
+          item.raw['vehicleDetails']?.toString() ??
+          item.raw['vehicle']?.toString() ??
+          'Verified Vehicle',
+      accentColor: const Color(0xFF0058BE),
+    );
+  }
+
+  List<String> _stringList(Object? value) {
+    if (value is List) return value.map((item) => item.toString()).toList();
+    return const [];
+  }
+
+  String _fareLabel(Object? value) {
+    if (value == null) return 'Rs. 0';
+    final text = value.toString();
+    return text.startsWith('Rs') ? text : 'Rs. $text';
+  }
+
+  String _joinedLabel(Object? value) {
+    final date = value is Timestamp ? value.toDate() : null;
+    if (date == null) return 'Joined recently';
+    return 'Joined ${date.day}/${date.month}/${date.year}';
+  }
+
+  String _dateLabel(Object? value) {
+    final date = value is Timestamp ? value.toDate() : null;
+    if (date == null) return 'Today';
+    return '${date.day}/${date.month}/${date.year}';
   }
 }

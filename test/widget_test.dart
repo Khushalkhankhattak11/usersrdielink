@@ -116,11 +116,14 @@ void main() {
 
     expect(find.text('Available Rides'), findsOneWidget);
     expect(find.text('Search Rides'), findsOneWidget);
-    expect(find.text('Ahmed Khan'), findsOneWidget);
+    expect(find.text('No rides found'), findsOneWidget);
+    expect(find.text('Book Seat'), findsNothing);
 
     await tester.tap(find.byTooltip('Profile'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Logout'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Yes'));
     await tester.pumpAndSettle();
 
     expect(find.text('Welcome Back'), findsOneWidget);
@@ -138,15 +141,16 @@ void main() {
     await tester.pump(const Duration(seconds: 3));
     await tester.pumpAndSettle();
 
-    expect(find.text('Islamabad G-11 Markaz'), findsWidgets);
+    expect(find.text('Current Location'), findsWidgets);
 
     await tester.enterText(find.byType(TextFormField).at(1), 'Karak');
     await tester.tap(find.text('Search Rides'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Islamabad to Karak'), findsOneWidget);
-    expect(find.text('3 RIDES FOUND'), findsOneWidget);
+    expect(find.text('Current to Karak'), findsOneWidget);
+    expect(find.text('0 RIDES FOUND'), findsOneWidget);
     expect(find.text('Cheapest first'), findsOneWidget);
+    expect(find.text('No rides found'), findsOneWidget);
     expect(find.text('Search Rides'), findsNothing);
 
     await tester.tap(find.byTooltip('Back'));
@@ -165,6 +169,8 @@ void main() {
     await tester.tap(find.byTooltip('Profile'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Logout'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Yes'));
     await tester.pumpAndSettle();
 
     expect(find.text('Welcome Back'), findsOneWidget);
@@ -188,28 +194,26 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('NEXT JOURNEY'), findsOneWidget);
-    expect(find.text('Today, 04:30 PM'), findsOneWidget);
-    expect(find.text('View Details'), findsOneWidget);
+    expect(find.text('No current booking is available'), findsOneWidget);
 
     await tester.tap(find.text('Past'));
     await tester.pumpAndSettle();
 
     expect(find.text('HISTORY'), findsOneWidget);
-    expect(find.text('PREMIUM'), findsOneWidget);
-    expect(find.text('Rs. 3,500'), findsOneWidget);
+    expect(find.text('No past booking is available'), findsOneWidget);
 
     await tester.tap(find.text('Wallet'));
     await tester.pumpAndSettle();
 
     expect(find.text('Wallet & Balance'), findsOneWidget);
-    expect(find.text('2,500'), findsOneWidget);
+    expect(find.text('0'), findsWidgets);
     expect(find.text('Pending Approvals'), findsOneWidget);
     expect(find.text('Recent Transactions'), findsOneWidget);
 
     await tester.tap(find.text('Profile'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Ahmed Hassan'), findsOneWidget);
+    expect(find.text('Ride Link User'), findsOneWidget);
     expect(find.text('Past Rides'), findsOneWidget);
     expect(find.text('Saved Routes'), findsOneWidget);
   });
@@ -256,7 +260,7 @@ void main() {
     );
     await tester.tap(find.text('Delete Account'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Delete Account').last);
+    await tester.tap(find.text('Yes'));
     await tester.pumpAndSettle();
 
     expect(find.text('Welcome Back'), findsOneWidget);
@@ -312,7 +316,7 @@ void main() {
     expect(find.text('Upload Received'), findsOneWidget);
     expect(find.text('Pending Admin Review'), findsOneWidget);
     expect(find.text('POINTS TO ADD'), findsOneWidget);
-    expect(find.text('2,500 pts'), findsOneWidget);
+    expect(find.text('1,000 pts'), findsOneWidget);
     expect(find.text('Return to Wallet'), findsOneWidget);
 
     await tester.tap(find.text('Return to Wallet'));
@@ -339,31 +343,7 @@ void main() {
     expect(find.text('Back to Login'), findsOneWidget);
   });
 
-  testWidgets('book seat opens ride details', (WidgetTester tester) async {
-    SharedPreferences.setMockInitialValues({
-      'has_seen_onboarding': true,
-      'is_logged_in': true,
-    });
-
-    await tester.pumpWidget(const MyApp(enableConnectivityCheck: false));
-    await tester.pump(const Duration(seconds: 3));
-    await tester.pumpAndSettle();
-
-    await tester.scrollUntilVisible(
-      find.text('Book Seat').first,
-      300,
-      scrollable: find.byType(Scrollable).last,
-    );
-    await tester.tap(find.text('Book Seat').first);
-    await tester.pumpAndSettle();
-
-    expect(find.text('Ride Details'), findsOneWidget);
-    expect(find.text('Select Seats'), findsOneWidget);
-    expect(find.text('Fare Breakdown'), findsOneWidget);
-    expect(find.text('Confirm Booking'), findsOneWidget);
-  });
-
-  testWidgets('available seat can be booked and then cannot be selected', (
+  testWidgets('available rides do not use hardcoded booking cards', (
     WidgetTester tester,
   ) async {
     SharedPreferences.setMockInitialValues({
@@ -375,33 +355,30 @@ void main() {
     await tester.pump(const Duration(seconds: 3));
     await tester.pumpAndSettle();
 
-    await tester.scrollUntilVisible(
-      find.text('Book Seat').first,
-      300,
-      scrollable: find.byType(Scrollable).last,
-    );
-    await tester.tap(find.text('Book Seat').first);
+    expect(find.text('Available Rides'), findsOneWidget);
+    expect(find.text('No rides found'), findsOneWidget);
+    expect(find.text('Book Seat'), findsNothing);
+    expect(find.text('Ride Details'), findsNothing);
+  });
+
+  testWidgets('search results stay empty without Firebase ride documents', (
+    WidgetTester tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({
+      'has_seen_onboarding': true,
+      'is_logged_in': true,
+    });
+
+    await tester.pumpWidget(const MyApp(enableConnectivityCheck: false));
+    await tester.pump(const Duration(seconds: 3));
     await tester.pumpAndSettle();
 
-    await tester.scrollUntilVisible(
-      find.byKey(const ValueKey('seat_passenger_1')),
-      240,
-      scrollable: find.byType(Scrollable).last,
-    );
-    await tester.tap(find.byKey(const ValueKey('seat_passenger_1')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Confirm Booking'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 1500));
+    await tester.enterText(find.byType(TextFormField).at(1), 'Karak');
+    await tester.tap(find.text('Search Rides'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Booking Confirmed!'), findsOneWidget);
-    expect(find.text('1 Seats Left'), findsOneWidget);
-
-    await tester.tap(find.byKey(const ValueKey('seat_passenger_1')));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Confirm Booking'), findsNothing);
-    expect(find.text('Booking Confirmed!'), findsOneWidget);
+    expect(find.text('0 RIDES FOUND'), findsOneWidget);
+    expect(find.text('No rides found'), findsOneWidget);
+    expect(find.text('Book Seat'), findsNothing);
   });
 }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'services/firebase_backend.dart';
+import 'services/location_service.dart';
 import 'viewmodels/app_theme_view_model.dart';
 import 'viewmodels/auth_flow_view_model.dart';
 import 'viewmodels/connectivity_view_model.dart';
@@ -19,6 +20,7 @@ import 'views/splash/splash_gate.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await FirebaseBackend.initialize();
+  await const LocationService().requestStartupPermission();
   runApp(const MyApp());
 }
 

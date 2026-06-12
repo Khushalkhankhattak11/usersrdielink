@@ -6,6 +6,8 @@ import '../../models/home_content.dart';
 import '../../viewmodels/app_theme_view_model.dart';
 import '../../viewmodels/home_view_model.dart';
 
+String? _activeRatingDialogRideId;
+
 class HomeScreen extends StatelessWidget {
   const HomeScreen({
     super.key,
@@ -21,6 +23,18 @@ class HomeScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final viewModel = context.watch<HomeViewModel>();
+    final ratingRide = viewModel.completedRideNeedingRating;
+    final ratingRideId = ratingRide?['id']?.toString();
+    if (ratingRide != null &&
+        ratingRideId != null &&
+        _activeRatingDialogRideId != ratingRideId) {
+      _activeRatingDialogRideId = ratingRideId;
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        if (!context.mounted) return;
+        await _showDriverRatingDialog(context, viewModel, ratingRide);
+        _activeRatingDialogRideId = null;
+      });
+    }
 
     return Scaffold(
       backgroundColor: HomeColors.background,
@@ -48,7 +62,7 @@ class HomeScreen extends StatelessWidget {
                       viewModel.isWalletTopUpOpen
                   ? viewModel.closeWalletTopUp
                   : viewModel.closeSearchResults,
-              onLogout: onLogout,
+              onLogout: () => _showLogoutDialog(context, onLogout),
             ),
             Expanded(
               child: SingleChildScrollView(
@@ -112,7 +126,7 @@ class _HomeTabContent extends StatelessWidget {
       HomeTab.wallet => _WalletTab(viewModel: viewModel),
       HomeTab.profile => _ProfileTab(
         viewModel: viewModel,
-        onLogout: onLogout,
+        onLogout: () => _showLogoutDialog(context, onLogout),
         onDeleteAccount: onDeleteAccount,
       ),
     };
@@ -162,7 +176,9 @@ class _SearchResultsContent extends StatelessWidget {
       children: [
         _SearchStatsRow(ridesFoundLabel: viewModel.ridesFoundLabel),
         const SizedBox(height: 16),
-        if (viewModel.rides.isEmpty)
+        if (viewModel.shouldShowRidesSkeleton)
+          const _SkeletonList()
+        else if (viewModel.rides.isEmpty)
           const _EmptyRideResults()
         else
           ...viewModel.rides.map(
@@ -362,7 +378,9 @@ class _LocationField extends StatelessWidget {
     return TextFormField(
       initialValue: initialValue,
       readOnly: readOnly,
-      onTap: readOnly ? () {} : null,
+      onTap: readOnly
+          ? () => context.read<HomeViewModel>().loadCurrentLocation()
+          : null,
       autofocus: false,
       autocorrect: false,
       enableSuggestions: false,
@@ -568,6 +586,10 @@ class _RideCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isFull =
+        ride.availableSeatCount == 0 ||
+        ride.seatsLeft.toLowerCase().contains('full');
+
     return DecoratedBox(
       decoration: BoxDecoration(
         color: HomeColors.surfaceLowest,
@@ -618,25 +640,13 @@ class _RideCard extends StatelessWidget {
                                       fontWeight: FontWeight.w700,
                                     ),
                                   ),
-                                  Row(
-                                    children: [
-                                      const Icon(
-                                        Icons.star,
-                                        color: Color(0xFFCA8A04),
-                                        size: 16,
-                                      ),
-                                      const SizedBox(width: 4),
-                                      Flexible(
-                                        child: Text(
-                                          ride.ratingLabel,
-                                          style: const TextStyle(
-                                            color: HomeColors.onSurfaceVariant,
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w700,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
+                                  Text(
+                                    ride.vehicle,
+                                    style: const TextStyle(
+                                      color: HomeColors.onSurfaceVariant,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
+                                    ),
                                   ),
                                 ],
                               ),
@@ -757,7 +767,7 @@ class _RideCard extends StatelessWidget {
                     ),
                   ),
                   FilledButton(
-                    onPressed: () => onBookSeat(ride),
+                    onPressed: isFull ? null : () => onBookSeat(ride),
                     style: FilledButton.styleFrom(
                       backgroundColor: HomeColors.primary,
                       foregroundColor: Colors.white,
@@ -765,7 +775,7 @@ class _RideCard extends StatelessWidget {
                         borderRadius: BorderRadius.circular(8),
                       ),
                     ),
-                    child: const Text('Book Seat'),
+                    child: Text(isFull ? 'Full' : 'Book Seat'),
                   ),
                 ],
               ),
@@ -944,7 +954,9 @@ class _MyRidesTab extends StatelessWidget {
           onTabSelected: viewModel.selectMyRidesTab,
         ),
         const SizedBox(height: 16),
-        if (viewModel.selectedMyRidesTab == MyRidesTab.upcoming)
+        if (viewModel.shouldShowBookingsSkeleton)
+          const _SkeletonList()
+        else if (viewModel.selectedMyRidesTab == MyRidesTab.upcoming)
           _UpcomingRidesList(rides: viewModel.upcomingRides)
         else
           _RideHistoryList(rides: viewModel.rideHistory),
@@ -1045,6 +1057,11 @@ class _UpcomingRidesList extends StatelessWidget {
       children: [
         const _SectionKicker('Next Journey'),
         const SizedBox(height: 8),
+        if (rides.isEmpty)
+          const _EmptyStateCard(
+            icon: Icons.event_busy,
+            title: 'No current booking is available',
+          ),
         ...rides.map(
           (ride) => Padding(
             padding: const EdgeInsets.only(bottom: 16),
@@ -1195,7 +1212,7 @@ class _UpcomingRideCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 16),
                   FilledButton(
-                    onPressed: () {},
+                    onPressed: () => _showManagedRideDialog(context, ride.raw),
                     style: FilledButton.styleFrom(
                       minimumSize: const Size.fromHeight(48),
                       backgroundColor: HomeColors.secondary,
@@ -1231,6 +1248,11 @@ class _RideHistoryList extends StatelessWidget {
       children: [
         const _SectionKicker('History'),
         const SizedBox(height: 8),
+        if (rides.isEmpty)
+          const _EmptyStateCard(
+            icon: Icons.history,
+            title: 'No past booking is available',
+          ),
         ...rides.map(
           (ride) => Padding(
             padding: const EdgeInsets.only(bottom: 12),
@@ -1486,6 +1508,10 @@ class _WalletTab extends StatelessWidget {
       return _WalletTopUpContent(viewModel: viewModel);
     }
 
+    if (viewModel.shouldShowWalletSkeleton) {
+      return const _SkeletonList();
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -1513,6 +1539,11 @@ class _WalletTab extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 8),
+        if (viewModel.walletTransactions.isEmpty)
+          const _EmptyStateCard(
+            icon: Icons.receipt_long,
+            title: 'No recent transaction is available',
+          ),
         ...viewModel.walletTransactions.map(
           (transaction) => Padding(
             padding: const EdgeInsets.only(bottom: 12),
@@ -1823,7 +1854,7 @@ class _WalletTopUpConfirmation extends StatelessWidget {
                     Expanded(
                       child: _WalletMiniStatusCard(
                         label: 'Points to Add',
-                        value: '2,500 pts',
+                        value: '1,000 pts',
                       ),
                     ),
                   ],
@@ -2499,6 +2530,7 @@ class _ProfileTab extends StatelessWidget {
         _ThemePreferenceCard(),
         const SizedBox(height: 16),
         _ProfileActions(
+          viewModel: viewModel,
           actions: viewModel.profileActions,
           onDeleteAccount: onDeleteAccount,
         ),
@@ -2578,6 +2610,13 @@ class _ProfileIdentityCard extends StatelessWidget {
               profile.joined,
               style: const TextStyle(color: HomeColors.onSurfaceVariant),
             ),
+            if (profile.email.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(
+                profile.email,
+                style: const TextStyle(color: HomeColors.onSurfaceVariant),
+              ),
+            ],
             const SizedBox(height: 10),
             DecoratedBox(
               decoration: BoxDecoration(
@@ -2634,26 +2673,11 @@ class _ProfileStats extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: _StatCard(
-            icon: Icons.directions_car,
-            iconColor: HomeColors.secondaryContainer,
-            value: profile.ridesTaken,
-            label: 'Rides Taken',
-          ),
-        ),
-        const SizedBox(width: 16),
-        Expanded(
-          child: _StatCard(
-            icon: Icons.star,
-            iconColor: const Color(0xFFFACC15),
-            value: profile.averageRating,
-            label: 'Average Rating',
-          ),
-        ),
-      ],
+    return _StatCard(
+      icon: Icons.directions_car,
+      iconColor: HomeColors.secondaryContainer,
+      value: profile.ridesTaken,
+      label: 'Rides Taken',
     );
   }
 }
@@ -2734,6 +2758,11 @@ class _PastRidesSection extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 8),
+        if (rides.isEmpty)
+          const _EmptyStateCard(
+            icon: Icons.history,
+            title: 'No past booking is available',
+          ),
         ...rides.map(
           (ride) => Padding(
             padding: const EdgeInsets.only(bottom: 16),
@@ -2899,8 +2928,13 @@ class _RidePoint extends StatelessWidget {
 }
 
 class _ProfileActions extends StatelessWidget {
-  const _ProfileActions({required this.actions, required this.onDeleteAccount});
+  const _ProfileActions({
+    required this.viewModel,
+    required this.actions,
+    required this.onDeleteAccount,
+  });
 
+  final HomeViewModel viewModel;
   final List<ProfileActionItem> actions;
   final VoidCallback onDeleteAccount;
 
@@ -2916,8 +2950,12 @@ class _ProfileActions extends StatelessWidget {
                 (item) => _ProfileActionRow(
                   item: item,
                   showDivider: item != actions.last,
-                  onTap: () =>
-                      _handleProfileAction(context, item.kind, onDeleteAccount),
+                  onTap: () => _handleProfileAction(
+                    context,
+                    viewModel,
+                    item.kind,
+                    onDeleteAccount,
+                  ),
                 ),
               )
               .toList(),
@@ -2953,6 +2991,7 @@ class _ThemePreferenceCard extends StatelessWidget {
 
 void _handleProfileAction(
   BuildContext context,
+  HomeViewModel viewModel,
   ProfileActionKind kind,
   VoidCallback onDeleteAccount,
 ) {
@@ -2960,7 +2999,7 @@ void _handleProfileAction(
     case ProfileActionKind.privacyPolicy:
       _showPrivacyPolicy(context);
     case ProfileActionKind.deleteAccount:
-      _showDeleteAccountDialog(context, onDeleteAccount);
+      _showDeleteAccountDialog(context, viewModel, onDeleteAccount);
     case ProfileActionKind.savedRoutes:
     case ProfileActionKind.settings:
     case ProfileActionKind.help:
@@ -3014,33 +3053,355 @@ void _showPrivacyPolicy(BuildContext context) {
 
 void _showDeleteAccountDialog(
   BuildContext context,
+  HomeViewModel viewModel,
   VoidCallback onDeleteAccount,
 ) {
+  var isDeleting = false;
+  showDialog<void>(
+    context: context,
+    builder: (dialogContext) => StatefulBuilder(
+      builder: (context, setState) {
+        return AlertDialog(
+          title: const Text('Delete Account?'),
+          content: const Text(
+            'Yes will delete your Firebase account and your user data. If you '
+            'have an active ride, cancel it first.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: isDeleting ? null : () => Navigator.of(context).pop(),
+              child: const Text('No'),
+            ),
+            FilledButton(
+              onPressed: isDeleting
+                  ? null
+                  : () async {
+                      setState(() => isDeleting = true);
+                      try {
+                        await viewModel.deleteCurrentAccount();
+                        if (context.mounted) Navigator.of(context).pop();
+                        onDeleteAccount();
+                      } on Object catch (error) {
+                        if (!context.mounted) return;
+                        setState(() => isDeleting = false);
+                        final message =
+                            error.toString().contains('active-booking-exists')
+                            ? 'Please cancel your active ride before deleting account.'
+                            : error.toString().contains('requires-recent-login')
+                            ? 'Please login again, then delete your account.'
+                            : 'Unable to delete account. Please try again.';
+                        ScaffoldMessenger.of(
+                          dialogContext,
+                        ).showSnackBar(SnackBar(content: Text(message)));
+                      }
+                    },
+              style: FilledButton.styleFrom(backgroundColor: HomeColors.error),
+              child: isDeleting
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Text('Yes'),
+            ),
+          ],
+        );
+      },
+    ),
+  );
+}
+
+void _showLogoutDialog(BuildContext context, VoidCallback onLogout) {
   showDialog<void>(
     context: context,
     builder: (context) => AlertDialog(
-      title: const Text('Delete Account'),
-      content: const Text(
-        'This will delete the local demo account session and return you to '
-        'Login. In a production app, this action must also request deletion of '
-        'all associated account data from backend systems.',
-      ),
+      title: const Text('Logout?'),
+      content: const Text('Do you want to logout from this account?'),
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+          child: const Text('No'),
         ),
         FilledButton(
           onPressed: () {
             Navigator.of(context).pop();
-            onDeleteAccount();
+            onLogout();
           },
-          style: FilledButton.styleFrom(backgroundColor: HomeColors.error),
-          child: const Text('Delete Account'),
+          child: const Text('Yes'),
         ),
       ],
     ),
   );
+}
+
+Future<void> _showDriverRatingDialog(
+  BuildContext context,
+  HomeViewModel viewModel,
+  Map<String, dynamic> ride,
+) async {
+  final managedRideId = ride['id']?.toString() ?? '';
+  final driverName = ride['driverName']?.toString() ?? 'driver';
+  var selectedRating = 5;
+
+  await showDialog<void>(
+    context: context,
+    barrierDismissible: false,
+    builder: (context) => StatefulBuilder(
+      builder: (context, setState) {
+        return AlertDialog(
+          title: const Text('Rate Your Driver'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text('How was your completed ride with $driverName?'),
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: List.generate(5, (index) {
+                  final value = index + 1;
+                  return IconButton(
+                    tooltip: '$value star',
+                    onPressed: () => setState(() => selectedRating = value),
+                    icon: Icon(
+                      value <= selectedRating ? Icons.star : Icons.star_border,
+                      color: const Color(0xFFFACC15),
+                      size: 34,
+                    ),
+                  );
+                }),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                viewModel.dismissRatingPrompt();
+                Navigator.of(context).pop();
+              },
+              child: const Text('Later'),
+            ),
+            FilledButton(
+              onPressed: managedRideId.isEmpty
+                  ? null
+                  : () async {
+                      await viewModel.submitDriverRating(
+                        managedRideId: managedRideId,
+                        rating: selectedRating,
+                      );
+                      if (context.mounted) Navigator.of(context).pop();
+                    },
+              child: const Text('Submit Rating'),
+            ),
+          ],
+        );
+      },
+    ),
+  );
+}
+
+void _showManagedRideDialog(
+  BuildContext context,
+  Map<String, dynamic> managedRide,
+) {
+  final viewModel = context.read<HomeViewModel>();
+  final rideId = managedRide['id']?.toString() ?? '';
+  final driverName = managedRide['driverName']?.toString() ?? 'Driver';
+  final driverPhone = managedRide['driverPhone']?.toString() ?? '';
+  final seats =
+      ((managedRide['seatLabels'] as List<dynamic>?) ??
+              (managedRide['seats'] as List<dynamic>?) ??
+              const [])
+          .map((seat) => seat.toString())
+          .join(', ');
+
+  showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    builder: (context) => SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('Manage Ride', style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 6),
+            Text('$driverName${driverPhone.isEmpty ? '' : ' - $driverPhone'}'),
+            if (seats.isNotEmpty) Text('Seats: $seats'),
+            const SizedBox(height: 16),
+            OutlinedButton.icon(
+              onPressed: () {
+                Navigator.of(context).pop();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Contact driver: $driverPhone')),
+                );
+              },
+              icon: const Icon(Icons.call),
+              label: const Text('Contact Driver'),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: () {
+                Navigator.of(context).pop();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text(
+                      'Seat change is allowed only when the new seat is not booked.',
+                    ),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.event_seat),
+              label: const Text('Change Seat'),
+            ),
+            const SizedBox(height: 8),
+            FilledButton.icon(
+              onPressed: () async {
+                Navigator.of(context).pop();
+                await viewModel.cancelManagedRide(
+                  managedRideId: rideId,
+                  driverAgreed: false,
+                );
+              },
+              icon: const Icon(Icons.cancel_outlined),
+              label: const Text('Cancel Ride'),
+              style: FilledButton.styleFrom(backgroundColor: HomeColors.error),
+            ),
+            TextButton(
+              onPressed: () async {
+                Navigator.of(context).pop();
+                await viewModel.cancelManagedRide(
+                  managedRideId: rideId,
+                  driverAgreed: true,
+                );
+              },
+              child: const Text('Driver agreed, cancel without deduction'),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+class _EmptyStateCard extends StatelessWidget {
+  const _EmptyStateCard({required this.icon, required this.title});
+
+  final IconData icon;
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: _cardDecoration(),
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Row(
+          children: [
+            Icon(icon, color: HomeColors.onSurfaceVariant),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                title,
+                style: const TextStyle(
+                  color: HomeColors.onSurfaceVariant,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SkeletonList extends StatelessWidget {
+  const _SkeletonList();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _SkeletonBox(height: 148),
+        SizedBox(height: 12),
+        _SkeletonBox(height: 148),
+        SizedBox(height: 12),
+        _SkeletonBox(height: 96),
+      ],
+    );
+  }
+}
+
+class _SkeletonBox extends StatelessWidget {
+  const _SkeletonBox({required this.height});
+
+  final double height;
+
+  @override
+  Widget build(BuildContext context) {
+    return _Shimmer(
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: HomeColors.surfaceHigh,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: SizedBox(height: height),
+      ),
+    );
+  }
+}
+
+class _Shimmer extends StatefulWidget {
+  const _Shimmer({required this.child});
+
+  final Widget child;
+
+  @override
+  State<_Shimmer> createState() => _ShimmerState();
+}
+
+class _ShimmerState extends State<_Shimmer>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1100),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, child) {
+        return ShaderMask(
+          shaderCallback: (bounds) {
+            return LinearGradient(
+              begin: Alignment(-1 + (_controller.value * 2), 0),
+              end: Alignment(0 + (_controller.value * 2), 0),
+              colors: const [
+                HomeColors.surfaceHigh,
+                Color(0xFFE9EDF5),
+                HomeColors.surfaceHigh,
+              ],
+            ).createShader(bounds);
+          },
+          child: child,
+        );
+      },
+      child: widget.child,
+    );
+  }
 }
 
 class _ProfileActionRow extends StatelessWidget {

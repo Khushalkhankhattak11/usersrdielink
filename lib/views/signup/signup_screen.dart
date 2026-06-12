@@ -1,6 +1,7 @@
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../models/signup_content.dart';
@@ -329,9 +330,12 @@ class _SignupForm extends StatelessWidget {
                 hintText: content.phonePlaceholder,
                 icon: Icons.call_outlined,
                 keyboardType: TextInputType.phone,
+                inputFormatters: [
+                  FilteringTextInputFormatter.digitsOnly,
+                  LengthLimitingTextInputFormatter(11),
+                ],
                 onChanged: viewModel.updatePhone,
-                validator: (value) =>
-                    viewModel.validateRequired(value, 'Phone number'),
+                validator: viewModel.validatePhone,
               ),
               const SizedBox(height: 16),
               _SignupField(
@@ -365,6 +369,7 @@ class _SignupField extends StatelessWidget {
     required this.onChanged,
     required this.validator,
     this.keyboardType,
+    this.inputFormatters,
     this.obscureText = false,
     this.onIconPressed,
   });
@@ -373,6 +378,7 @@ class _SignupField extends StatelessWidget {
   final String hintText;
   final IconData icon;
   final TextInputType? keyboardType;
+  final List<TextInputFormatter>? inputFormatters;
   final bool obscureText;
   final VoidCallback? onIconPressed;
   final ValueChanged<String> onChanged;
@@ -398,6 +404,7 @@ class _SignupField extends StatelessWidget {
         const SizedBox(height: 4),
         TextFormField(
           keyboardType: keyboardType,
+          inputFormatters: inputFormatters,
           obscureText: obscureText,
           onChanged: onChanged,
           validator: validator,

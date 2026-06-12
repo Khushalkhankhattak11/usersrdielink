@@ -20,7 +20,7 @@ class SignupViewModel extends ChangeNotifier {
         emailLabel: 'Email Address',
         emailPlaceholder: 'ahmed.khan@example.com',
         phoneLabel: 'Phone Number',
-        phonePlaceholder: '+92 300 1234567',
+        phonePlaceholder: '03001234567',
         passwordLabel: 'Password',
         passwordPlaceholder: 'Password',
         termsPrefix: 'I agree to the',
@@ -109,6 +109,20 @@ class SignupViewModel extends ChangeNotifier {
     return null;
   }
 
+  String? validatePhone(String? value) {
+    final text = (value ?? '').replaceAll(RegExp(r'[^0-9]'), '');
+    if (text.isEmpty) {
+      return 'Phone number is required';
+    }
+    if (text.length != 11) {
+      return 'Phone number must be exactly 11 digits';
+    }
+    if (!_isSupportedNetwork(text)) {
+      return 'Use a Jazz, Zong, Ufone, or Telenor number';
+    }
+    return null;
+  }
+
   String? validateTerms() {
     return _acceptedTerms ? null : 'Please accept the terms to continue';
   }
@@ -167,5 +181,9 @@ class SignupViewModel extends ChangeNotifier {
       return 'Network error. Please try again.';
     }
     return 'Unable to create account. Please try again.';
+  }
+
+  bool _isSupportedNetwork(String phone) {
+    return RegExp(r'^(030[0-9]|031[0-9]|033[0-7]|034[0-9])').hasMatch(phone);
   }
 }

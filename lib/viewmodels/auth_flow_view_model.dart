@@ -7,6 +7,7 @@ import '../models/home_content.dart';
 import '../services/firebase_backend.dart';
 
 enum AuthDestination {
+  resolving,
   onboarding,
   login,
   signup,
@@ -25,15 +26,16 @@ class AuthFlowViewModel extends ChangeNotifier {
   static const _isLoggedInKey = 'is_logged_in';
   final AuthRepository _authRepository;
 
-  AuthDestination _destination = AuthDestination.onboarding;
+  AuthDestination _destination = AuthDestination.resolving;
   RideOption? _selectedRide;
 
   AuthDestination get destination => _destination;
   RideOption? get selectedRide => _selectedRide;
 
   Future<void> load() async {
+    SharedPreferences? preferences;
     try {
-      final preferences = await SharedPreferences.getInstance();
+      preferences = await SharedPreferences.getInstance();
       final firebaseUser = await _authRepository.currentUser;
       final isLoggedIn =
           firebaseUser != null ||
@@ -47,7 +49,14 @@ class AuthFlowViewModel extends ChangeNotifier {
           : AuthDestination.onboarding;
       notifyListeners();
     } on Object {
-      _destination = AuthDestination.onboarding;
+      final isLoggedIn = preferences?.getBool(_isLoggedInKey) ?? false;
+      final hasSeenOnboarding =
+          preferences?.getBool(_hasSeenOnboardingKey) ?? false;
+      _destination = isLoggedIn
+          ? AuthDestination.home
+          : hasSeenOnboarding
+          ? AuthDestination.login
+          : AuthDestination.onboarding;
       notifyListeners();
     }
   }

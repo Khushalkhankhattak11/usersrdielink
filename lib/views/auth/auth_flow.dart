@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../viewmodels/auth_flow_view_model.dart';
+import '../../viewmodels/home_view_model.dart';
 import '../forgot_password/forgot_password_screen.dart';
 import '../home/home_screen.dart';
 import '../login/login_screen.dart';
 import '../onboarding/onboarding_screen.dart';
 import '../ride_details/ride_details_screen.dart';
 import '../signup/signup_screen.dart';
+import '../splash/splash_screen.dart';
 
 class AuthFlow extends StatelessWidget {
   const AuthFlow({super.key});
@@ -17,19 +19,28 @@ class AuthFlow extends StatelessWidget {
     final viewModel = context.watch<AuthFlowViewModel>();
     final destination = viewModel.destination;
     final child = switch (destination) {
+      AuthDestination.resolving => const SplashScreen(
+        key: ValueKey(AuthDestination.resolving),
+      ),
       AuthDestination.onboarding => OnboardingScreen(
         key: const ValueKey(AuthDestination.onboarding),
         onFinished: viewModel.completeOnboarding,
       ),
       AuthDestination.login => LoginScreen(
         key: const ValueKey(AuthDestination.login),
-        onAuthenticated: viewModel.recordLogin,
+        onAuthenticated: () {
+          context.read<HomeViewModel>().resetToHomeTab();
+          viewModel.recordLogin();
+        },
         onOpenSignup: viewModel.openSignup,
         onForgotPassword: viewModel.openForgotPassword,
       ),
       AuthDestination.signup => SignupScreen(
         key: const ValueKey(AuthDestination.signup),
-        onSignedUp: viewModel.recordSignup,
+        onSignedUp: () {
+          context.read<HomeViewModel>().resetToHomeTab();
+          viewModel.recordSignup();
+        },
         onOpenLogin: viewModel.openLogin,
       ),
       AuthDestination.forgotPassword => ForgotPasswordScreen(
